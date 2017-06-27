@@ -54,7 +54,7 @@ func (mongoModel *MongoModel) Insert(model interface{}, collectionName string) e
 	val = val.FieldByName("MongoModel")
 	updateAt := val.FieldByName("UpdatedAt")
 	if !updateAt.IsValid() {
-		return errors.New("Could not found UpdateAt member for this model")
+		return errors.New("Could not find UpdateAt member for this model")
 	}
 	updateAt.Set(reflect.ValueOf(time.Now()))
 
@@ -132,6 +132,48 @@ func (mongoModel *MongoModel) Find(model interface{}, collectionName string, res
 		}
 	}
 	return mgo.ErrNotFound
+}
+
+// Update finds a single document matching the provided selector document
+// and modifies it according to the update document.
+func (mongoModel *MongoModel) Update(model interface{}, collectionName string) error {
+	session, err := mgo.Dial(ServerAddress)
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	c := session.DB(DatabaseName).C(collectionName)
+
+	//TODO: Caustion, we first find the model to ensure that all fields are loaded and nothing will be deleted by mistake while updating it
+	//This may cause some performance issues.
+	//FIXME: This approach actually fails it's promise to prevent deletation of the old and not loaded fields of the document, since
+	//at the end, it just updates the model with the one received from the caller, and the respected fields of that model might be empty.
+
+	//Creating variable savedModel from type of model
+	modelVal := reflect.ValueOf(model)
+	if modelVal.Kind() == reflect.Ptr {
+		modelVal = modelVal.Elem()
+	}
+	modelType := modelVal.Type()
+	savedModel := reflect.New(modelType)
+
+	//Model's Object ID
+	obgID := modelVal.FieldByName("ID").Interface().(bson.ObjectId)
+
+	//Finding and populationg savedModel before updating it
+	if err := c.FindId(obgID).One(savedModel.Interface()); err != nil {
+		return err
+	}
+
+	//Updating UpdatedAt field
+	updatedAt := modelVal.FieldByName("MongoModel").FieldByName("UpdatedAt")
+	if !updatedAt.IsValid() {
+		return errors.New("Could not find UpdateAt member for this model")
+	}
+	updatedAt.Set(reflect.ValueOf(time.Now()))
+
+	//Updating the model
+	return c.UpdateId(obgID, model)
 }
 
 func InitSongo(serverAddr string, databaseName string) {
