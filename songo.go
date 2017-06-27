@@ -96,6 +96,45 @@ func (mongoModel *MongoModel) RemoveHard(model interface{}, collectionName strin
 
 // RemoveAll finds all documents matching the provided selector model
 // and removes them from the database.
+func (mongoModel *MongoModel) RemoveAll(model interface{} , collectionName string) (*mgo.ChangeInfo, error) {
+	changeInfo := new(mgo.ChangeInfo)
+	session, err := mgo.Dial(ServerAddress)
+	if err != nil {
+		return changeInfo, err
+	}
+	defer session.Close()
+	mongoCollection := session.DB(DatabaseName).C(collectionName)
+
+	//Recognizing type of model
+	modelVal := reflect.ValueOf(model)
+	if modelVal.Kind() == reflect.Ptr {
+		modelVal = modelVal.Elem()
+	}
+	modelType := modelVal.Type()
+	foundDocs := reflect.New(reflect.SliceOf(modelType))
+	err = mongoCollection.Find(model).All(foundDocs.Interface())
+	if err != nil {
+		return changeInfo, err
+	}
+
+	//Remove all found documents by setting DeletedAt field.
+	for i := 0; i < foundDocs.Elem().Len(); i++ {
+		changeInfo.Matched++
+		doc := foundDocs.Elem().Index(i)
+		mm := doc.FieldByName("MongoModel").Interface().(MongoModel)
+		if mm.DeletedAt.IsZero() {
+			err = mongoCollection.Update(doc.Interface(), bson.M{"$set": bson.M{"timestamps.deleted_at": time.Now()}})
+			if err == nil {
+				changeInfo.Updated++
+			}
+		}
+	}
+
+	return changeInfo, nil
+}
+
+// RemoveAll finds all documents matching the provided selector model
+// and removes them from the database.
 func (mongoModel *MongoModel) RemoveAllHard(model interface{}, collectionName string) (*mgo.ChangeInfo, error) {
 	session, err := mgo.Dial(ServerAddress)
 	if err != nil {
