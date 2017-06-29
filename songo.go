@@ -96,7 +96,7 @@ func (mongoModel *MongoModel) RemoveHard(model interface{}, collectionName strin
 
 // RemoveAll finds all documents matching the provided selector model
 // and removes them from the database.
-func (mongoModel *MongoModel) RemoveAll(model interface{} , collectionName string) (*mgo.ChangeInfo, error) {
+func (mongoModel *MongoModel) RemoveAll(model interface{}, collectionName string) (*mgo.ChangeInfo, error) {
 	changeInfo := new(mgo.ChangeInfo)
 	session, err := mgo.Dial(ServerAddress)
 	if err != nil {
@@ -163,14 +163,49 @@ func (mongoModel *MongoModel) Find(model interface{}, collectionName string, res
 
 	//Check all found documents to seek the one that is not deleted (DeletedAt field is not set)
 	for i := 0; i < foundDocs.Elem().Len(); i++ {
-		user := foundDocs.Elem().Index(i)
-		mm := user.FieldByName("MongoModel").Interface().(MongoModel)
+		doc := foundDocs.Elem().Index(i)
+		mm := doc.FieldByName("MongoModel").Interface().(MongoModel)
 		if mm.DeletedAt.IsZero() {
-			reflect.ValueOf(result).Elem().Set(user)
+			reflect.ValueOf(result).Elem().Set(doc)
 			return nil
 		}
 	}
 	return mgo.ErrNotFound
+}
+
+// Find prepares a query using the provided document and populates the result
+func (mongoModel *MongoModel) FindAll(model interface{}, collectionName string, result interface{}) error {
+	session, err := mgo.Dial(ServerAddress)
+	if err != nil {
+		return err
+	}
+	defer session.Close()
+	mongoCollection := session.DB(DatabaseName).C(collectionName)
+
+	resultVal := reflect.ValueOf(result)
+	if resultVal.Kind() == reflect.Ptr {
+		resultVal = resultVal.Elem()
+	} else {
+		return errors.New("result should be of type pointer.")
+	}
+	resultType := reflect.ValueOf(result).Elem().Type()
+	foundDocs := reflect.New(resultType)
+	mongoCollection.Find(model).All(foundDocs.Interface())
+	resultSlice := reflect.New(resultType).Elem()
+
+	//Check all found documents to seek the one that is not deleted (DeletedAt field is not set)
+	for i := 0; i < foundDocs.Elem().Len(); i++ {
+		doc := foundDocs.Elem().Index(i)
+		mm := doc.FieldByName("MongoModel").Interface().(MongoModel)
+		if mm.DeletedAt.IsZero() {
+			resultSlice = reflect.Append(resultSlice, doc)
+		}
+	}
+	reflect.ValueOf(result).Elem().Set(resultSlice)
+	if resultSlice.Len() == 0 {
+		return mgo.ErrNotFound
+	}
+	return nil
 }
 
 // Update finds a single document matching the provided selector document
