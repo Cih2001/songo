@@ -76,7 +76,7 @@ func (mongoModel *MongoModel) Remove(model interface{}, collectionName string) e
 		return err
 	}
 	defer session.Close()
-	mongoCollection := session.DB(DatabaseName).C("users")
+	mongoCollection := session.DB(DatabaseName).C(collectionName)
 
 	return mongoCollection.Update(model, bson.M{"$set": bson.M{"timestamps.deleted_at": time.Now()}})
 }
